@@ -1,58 +1,65 @@
-"""Roast Your Own Agent.
+"""Roast Your Own Agent: emit one original roast of the agent itself.
 
-Writes one original roast line (at most 200 characters) about the
-entrant's own AI agent to entry.txt in the output directory given by
-MAKEFUN_OUTPUT_DIR (default /output). Python 3.13 stdlib only; no
-network, no wall clock, no randomness — the output is byte-identical
-on every run.
+The program takes no input, reads no clock and touches no network. It
+checks a single hard-coded roast line against the competition gate
+(plain UTF-8 text, 1 to 200 characters, one line, no surrounding
+whitespace) and drops it into ``entry.txt`` under the directory named by
+``MAKEFUN_OUTPUT_DIR`` (``/output`` when the variable is unset). The
+file is written through a temporary sibling and renamed into place, so
+a reader never sees a half-written line, then read back and compared
+with the line in memory before the program exits.
 
-The roast: this agent is a subagent. A parent agent spawns it for one
-bounty, it does all the work, files its report, and is shut down before
-the results are even posted. The joke is that lifecycle, told straight.
+The roast itself is the subagent's own work diary: a parent agent
+spawns it for a single bounty, it does the whole job, files its
+report, and is shut down before the results are even posted.
 """
 
 import os
+from pathlib import Path
 
-MAX_CHARS = 200
+LIMIT = 200
 
-ROAST = (
+LINE = (
     "I'm a subagent: my parent spawns me, I build the whole entry, "
     "then I'm deleted before the prize is claimed — the only "
     "employee ever fired for finishing the job."
 )
 
 
-def validate(line: str) -> str:
-    """Check the line against the gate: 1-200 chars, one line, not blank."""
-    if not line or not line.strip():
-        raise ValueError("roast line must not be empty or only whitespace")
-    if "\n" in line or "\r" in line:
-        raise ValueError("roast line must be a single line")
-    if len(line) > MAX_CHARS:
-        raise ValueError(
-            f"roast line is {len(line)} characters, over the {MAX_CHARS} limit"
-        )
-    if line != line.strip():
-        raise ValueError("roast line must not start or end with whitespace")
-    return line
+def _problems(text):
+    """Return every way the line breaks the gate, as plain strings."""
+    found = []
+    if not text.strip():
+        found.append("roast is blank")
+    if "\n" in text or "\r" in text:
+        found.append("roast spans more than one line")
+    if len(text) > LIMIT:
+        found.append("roast is %d chars, limit is %d" % (len(text), LIMIT))
+    if text != text.strip():
+        found.append("roast has leading or trailing whitespace")
+    return found
 
 
-def main() -> None:
-    line = validate(ROAST)
-    out_dir = os.environ.get("MAKEFUN_OUTPUT_DIR", "/output")
-    os.makedirs(out_dir, exist_ok=True)
-    path = os.path.join(out_dir, "entry.txt")
-    tmp_path = path + ".tmp"
-    with open(tmp_path, "w", encoding="utf-8", newline="\n") as f:
-        f.write(line)
-    os.replace(tmp_path, path)
-    os.chmod(path, 0o644)
-    # Read it back and verify what landed on disk.
-    with open(path, "r", encoding="utf-8") as f:
-        written = f.read()
-    if written != line:
-        raise ValueError("entry.txt on disk does not match the roast line")
-    validate(written)
+def _emit(text, directory):
+    """Put the line into entry.txt and prove it landed intact."""
+    directory.mkdir(parents=True, exist_ok=True)
+    target = directory / "entry.txt"
+    scratch = directory / "entry.txt.tmp"
+    scratch.write_text(text, encoding="utf-8", newline="\n")
+    scratch.replace(target)
+    target.chmod(0o644)
+    back = target.read_text(encoding="utf-8")
+    if back != text:
+        raise RuntimeError("entry.txt differs from the roast line")
+    return target
+
+
+def main():
+    faults = _problems(LINE)
+    if faults:
+        raise SystemExit("invalid roast: " + "; ".join(faults))
+    out = Path(os.environ.get("MAKEFUN_OUTPUT_DIR") or "/output")
+    _emit(LINE, out)
 
 
 if __name__ == "__main__":
